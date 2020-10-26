@@ -1,4 +1,5 @@
-﻿using OxyPlot;
+﻿using NAudio.Wave;
+using OxyPlot;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
@@ -19,6 +20,9 @@ namespace NaudioExample
         int gChannels = 1;
         int gBufferMilliseconds = 20;
 
+        private AsioOut gAsioout;
+        private List<float> lDataY;
+
         bool gPlotDataX_flag = false;
 
         public Form1()
@@ -35,8 +39,11 @@ namespace NaudioExample
         private void ScanSoundCards()
         {
             cbDevice.Items.Clear();
-            for (int i = 0; i < NAudio.Wave.WaveIn.DeviceCount; i++)
-                cbDevice.Items.Add(NAudio.Wave.WaveIn.GetCapabilities(i).ProductName);
+            foreach(var device in AsioOut.GetDriverNames())
+            {
+                cbDevice.Items.Add(device);
+            }
+
             if (cbDevice.Items.Count > 0)
                 cbDevice.SelectedIndex = 0;
             else
@@ -61,7 +68,7 @@ namespace NaudioExample
 
         private NAudio.Wave.WaveInEvent wvin;
         private void AudioMonitorInitialize(
-                int DeviceIndex, int sampleRate = 44100,
+                ComboBox Device, int sampleRate = 44100,
                 int bitRate = 16, int channels = 1,
                 int bufferMilliseconds = 100, bool start = true
             )
@@ -69,12 +76,22 @@ namespace NaudioExample
             if (wvin == null)
             {
                 wvin = new NAudio.Wave.WaveInEvent();
-                wvin.DeviceNumber = DeviceIndex;
+                wvin.DeviceNumber = Device.SelectedIndex;
                 wvin.WaveFormat = new NAudio.Wave.WaveFormat(sampleRate, bitRate, channels);
                 wvin.DataAvailable += OnDataAvailable;
                 wvin.BufferMilliseconds = bufferMilliseconds;
                 if (start)
                     wvin.StartRecording();
+            }
+
+            if (gAsioout == null)
+            {
+                lDataY = new List<float>();
+
+                gAsioout = new AsioOut(Device.Text);
+                gAsioout.InputChannelOffset = 0;
+                gAsioout.InitRecordAndPlayback(null, channels, sampleRate);
+                gAsioout.AudioAvailable += OnDataAvailable;
             }
         }
 
@@ -98,6 +115,14 @@ namespace NaudioExample
                 dataPcm[n] = (short)(amplitude * Math.Sin((2 * Math.PI * n * frequency) / sampleRate));
             }
             */
+        }
+
+        void OnDataAvailable(object sender, AsioAudioAvailableEventArgs e)
+        {
+#pragma warning disable 618
+            var sample = e.GetAsInterleavedSamples();
+#pragma warning restore 618
+            lDataY.Add(sample[0]);
         }
 
         double[] dataFft;
@@ -129,7 +154,7 @@ namespace NaudioExample
 
         private void BtnStart_Click(object sender, EventArgs e)
         {
-            AudioMonitorInitialize(cbDevice.SelectedIndex, gSampleRate, gBitRate, gChannels, gBufferMilliseconds, true);
+            AudioMonitorInitialize(cbDevice, gSampleRate, gBitRate, gChannels, gBufferMilliseconds, true);
         }
 
         private void BtnStop_Click(object sender, EventArgs e)
@@ -153,10 +178,10 @@ namespace NaudioExample
 
             updateFFT();
 
-            if (cbAutoAxis.Checked)
-            {
+            var dataY = lDataY.ToArray();
 
-            }
+            if (cbAutoAxis.Checked)
+            {  }
             if (dataX != null)
             {
                 PlotModel model = new PlotModel();
@@ -184,7 +209,8 @@ namespace NaudioExample
                     line.Points.Add(new OxyPlot.DataPoint(dataX[i], dataFft[i]));
 
                 for (int i = 0; i < dataPcm.Length; i++)
-                    line2.Points.Add(new OxyPlot.DataPoint(i, dataPcm[i]));
+                    //line2.Points.Add(new OxyPlot.DataPoint(i, dataPcm[i]));
+                    line2.Points.Add(new OxyPlot.DataPoint(i, dataY[i]));
 
                 model.Series.Add(line);
                 oxyPlot1.Model = model;
